@@ -1,4 +1,4 @@
-from cv374 import T3WHandler, Win32Handler, DBLHandler
+from cv374 import T3WHandler, Win32Handler, DBLHandler, WINHandler
 from pathlib import Path
 import pandas as pd
 import re
