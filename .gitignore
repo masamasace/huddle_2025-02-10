@@ -1,2 +1,4 @@
 /01_data*
 *desktop.ini
+*.code-workspace
+.DS_Store
