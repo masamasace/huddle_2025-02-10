@@ -2,6 +2,8 @@ from cv374 import T3WHandler, DBLHandler, WINHandler
 from pathlib import Path
 import pandas as pd
 import re
+from datetime import datetime, timedelta
+import numpy as np
 
 class DataLoader:
     
@@ -111,12 +113,22 @@ class DataCombiner:
                     current_handler = self.data_loader.data[file_indices[i]]
                     prev_handler = self.data_loader.data[file_indices[i-1]]
                     
-                    if prev_handler.get_header()['end_datetime'] > current_handler.get_header()['start_datetime']:
+                    # change str to datetime
+                    if isinstance(current_handler.get_header()['start_datetime'], str):
+                        cur_start_time = datetime.fromisoformat(current_handler.get_header()['start_datetime'].replace('Z', '+00:00'))
+                    else:
+                        cur_start_time = current_handler.get_header()['start_datetime']
+                    if isinstance(prev_handler.get_header()['end_datetime'], str):
+                        prev_end_time = datetime.fromisoformat(prev_handler.get_header()['end_datetime'].replace('Z', '+00:00'))
+                    else:
+                        prev_end_time = prev_handler.get_header()['end_datetime']
+                    
+                    if cur_start_time < prev_end_time:
                         print("Overlap detected:")
                         print("  Previous file ends:", prev_handler.get_header()['end_datetime'])
                         print("  Current file starts:", current_handler.get_header()['start_datetime'])
                     
-                    elif prev_handler.get_header()['end_datetime'] < current_handler.get_header()['start_datetime']:
+                    elif cur_start_time - prev_end_time > timedelta(seconds=0.01):
                         combined_index += 1
                 
                 self.data_loader.files.loc[file_indices[i], 'combined_index'] = combined_index
