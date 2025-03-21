@@ -1,10 +1,7 @@
-from data_loader import DataLoader
-from cv374 import T3WHandler, Win32Handler, DBLHandler, WINHandler  
+from data_handler import DataLoader, DataCombiner
+from cv374 import T3WHandler, WIN32Handler, DBLHandler, WINHandler  
 
-# data = DataLoader("01_data")
-
-# temp_dbl_data = DBLHandler(r"01_data\01_群馬高専\Trillium\200327_20250210111729.dbl")
-# print(temp_dbl_data.header_fixed)
-# print(temp_dbl_data.header_variable)
-# print(temp_dbl_data.data)
-temp_win_data = WINHandler(r"01_data/01_群馬高専/D013/25021011.36")
+data_dir = r"01_data"
+data_dir = r"01_data\01_群馬高専\CV374-1"
+data = DataLoader(data_dir)
+combined_data = DataCombiner(data)
