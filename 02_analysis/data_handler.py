@@ -303,10 +303,10 @@ class DataCombiner:
                     # Get stream to extract sampling rate, samples, and channels info
                     stream = handler.get_stream()
                     
-                    # Extract calibration coefficients from header
-                    calib_coeffs = {}
+                    # Extract calibration coefficient from header (single value for the entire stream)
+                    calib_coeff = None
                     if 'calib_coeff' in header:
-                        calib_coeffs = header['calib_coeff']
+                        calib_coeff = header['calib_coeff']
                     
                     file_metadata.append({
                         'path': file_path,
@@ -315,23 +315,19 @@ class DataCombiner:
                         'sampling_rate': float(stream[0].stats.sampling_rate),
                         'n_samples': int(stream[0].stats.npts),
                         'n_channels': len(stream),
-                        'calibration_coefficients': calib_coeffs
+                        'calibration_coefficient': calib_coeff
                     })
                 
                 # Get combined stream info
                 combined_stream = combined_item['stream']
                 n_channels = len(set(tr.stats.channel for tr in combined_stream))
                 
-                # Collect calibration coefficients for the combined data
-                combined_calib_coeffs = {}
-                for channel in set(tr.stats.channel for tr in combined_stream):
-                    # Look for calibration coefficient for this channel in all files
-                    for file_meta in file_metadata:
-                        if ('calibration_coefficients' in file_meta and 
-                            isinstance(file_meta['calibration_coefficients'], dict) and 
-                            channel in file_meta['calibration_coefficients']):
-                            combined_calib_coeffs[channel] = file_meta['calibration_coefficients'][channel]
-                            break
+                # Use the calibration coefficient from the first file for the combined data
+                combined_calib_coeff = None
+                for file_meta in file_metadata:
+                    if 'calibration_coefficient' in file_meta and file_meta['calibration_coefficient'] is not None:
+                        combined_calib_coeff = file_meta['calibration_coefficient']
+                        break
                 
                 # Save metadata
                 metadata[combined_id] = {
@@ -342,7 +338,7 @@ class DataCombiner:
                     'sampling_rate': str(combined_stream[0].stats.sampling_rate),
                     'n_channels': str(n_channels),
                     'total_samples': str(sum(tr.stats.npts for tr in combined_stream)),
-                    'calibration_coefficients': combined_calib_coeffs
+                    'calibration_coefficient': combined_calib_coeff
                 }
                 
                 # Save stream data as CSV with relative time
