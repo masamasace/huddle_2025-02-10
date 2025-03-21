@@ -4,6 +4,7 @@ import pandas as pd
 import re
 from datetime import datetime, timedelta
 import numpy as np
+import json
 
 class DataLoader:
     
@@ -418,3 +419,66 @@ class DataCombiner:
             
             print(f"Saved metadata to {json_file}")
 
+class GraphExporter():
+    
+    def __init__(self, data_dir):
+        self.data_dir = Path(data_dir)
+        
+        self._make_file_list()
+        
+        self._update_csv()
+    
+    def _make_file_list(self):
+        
+        # find all csv files in the directory
+        csv_files = list(self.data_dir.glob('**/combined*.csv'))
+        
+        # exclude updated csv files
+        csv_files = [x for x in csv_files if not re.search(r'_updated\.csv$', str(x))]
+        
+        # convert to pandas DataFrame
+        self.files = pd.DataFrame({'file_path': csv_files})
+        
+        # reset index
+        self.files = self.files.reset_index(drop=True)
+        
+        # get calibration coefficient
+        self.files['calib_coeff'] = self.files['file_path'].apply(lambda x: self._get_calib_coeff(x))
+        
+    
+    def _get_calib_coeff(self, file_path):
+        
+        file_dir = file_path.parent
+        
+        # find metadata.json
+        metadata_file = file_dir / 'metadata.json'
+        
+        if metadata_file.exists():
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            
+            # find the calibration coefficient
+            for key, value in metadata.items():
+                return value['calibration_coefficient']
+    
+    def _update_csv(self):
+        
+        for i, row in self.files.iterrows():
+            
+            print("\rUpdating csv... ", '{:<6.2f}%'.format((i+1)/len(self.files)*100), end="")
+            
+            file_path = row['file_path']
+            calib_coeff = row['calib_coeff']
+            
+            # load csv file
+            data = pd.read_csv(file_path).astype('float64')
+            
+            # update data
+            data.iloc[:, 1:] = data.iloc[:, 1:] * calib_coeff
+            
+            # save updated data
+            updated_file_path = file_path.parent / (file_path.stem + "_updated.csv")
+            data.to_csv(updated_file_path, index=False)
+            
+        print("\nCSV updated.")
+    
