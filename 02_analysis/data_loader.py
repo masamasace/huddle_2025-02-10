@@ -1,4 +1,4 @@
-from cv374 import T3WHandler, Win32Handler, DBLHandler, WINHandler
+from cv374 import T3WHandler, DBLHandler, WINHandler
 from pathlib import Path
 import pandas as pd
 import re
@@ -50,7 +50,7 @@ class DataLoader:
             if row['file_type'] == 'ts':
                 self.data.append(T3WHandler(row['file_path']))
             elif row['file_type'] == 'hk':
-                self.data.append(Win32Handler(row['file_path']))
+                self.data.append(WINHandler(row['file_path']))
             elif row['file_type'] == 'na':
                 self.data.append(DBLHandler(row['file_path']))
     
