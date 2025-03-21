@@ -341,7 +341,7 @@ class DataCombiner:
                     'calibration_coefficient': combined_calib_coeff
                 }
                 
-                # Save stream data as CSV with relative time
+                # Save stream data as CSV with epoch time
                 stream = combined_item['stream']
                 csv_file = combined_dir / f"{combined_id}.csv"
                 
@@ -362,9 +362,38 @@ class DataCombiner:
                         padding = [np.nan] * (max_length - len(data))
                         stream_data[channel] = np.append(data, padding)
                 
-                # Now create and add time array based on the final data length
+                # Now create epoch time array
                 sampling_rate = stream[0].stats.sampling_rate
-                time_array = np.arange(0, max_length) / sampling_rate
+                
+                # Parse the start datetime from metadata and convert to epoch
+                start_datetime_str = metadata[combined_id]['start_datetime']
+                
+                # Handle different datetime formats
+                try:
+                    # Try ISO format first
+                    if 'Z' in start_datetime_str:
+                        start_datetime = datetime.fromisoformat(start_datetime_str.replace('Z', '+00:00'))
+                    else:
+                        start_datetime = datetime.fromisoformat(start_datetime_str)
+                except ValueError:
+                    # Try other common formats
+                    for fmt in ['%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S.%f', '%Y/%m/%d %H:%M:%S']:
+                        try:
+                            start_datetime = datetime.strptime(start_datetime_str, fmt)
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        # If all formats fail, use a default value and warn
+                        print(f"Warning: Could not parse start datetime: {start_datetime_str}")
+                        # Use Unix epoch start as fallback
+                        start_datetime = datetime(1970, 1, 1)
+                
+                # Convert to epoch seconds (timestamp)
+                start_epoch = start_datetime.timestamp()
+                
+                # Create array of epoch seconds
+                time_array = start_epoch + np.arange(0, max_length) / sampling_rate
                 stream_data['time_s'] = time_array
                 
                 # reorder columns (time, N, E, Z) or (time, 0, 1, 2)
@@ -378,7 +407,6 @@ class DataCombiner:
                     key_list.remove('time_s')
                     key_list.insert(0, 'time_s')
                     stream_data = {k: stream_data[k] for k in key_list}
-                    
                 
                 pd.DataFrame(stream_data).to_csv(csv_file, index=False)
                 print(f"Saved stream data to {csv_file}")

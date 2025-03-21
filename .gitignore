@@ -2,4 +2,4 @@
 *desktop.ini
 *.code-workspace
 .DS_Store
-02_analysis/__pycache__/data_handler.cpython-312.pyc
+*.pyc
