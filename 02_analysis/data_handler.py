@@ -5,10 +5,11 @@ import re
 from datetime import datetime, timedelta
 import numpy as np
 import json
+from typing import Union
 
 class DataLoader:
     
-    def __init__(self, dir_path):
+    def __init__(self, dir_path: Union[str, Path]):
     
         self.dir_path = Path(dir_path)
         
@@ -64,13 +65,15 @@ class DataLoader:
 
 class DataCombiner:
     
-    def __init__(self, data_loader):
+    def __init__(self, data_loader: DataLoader):
         """Initialize with a DataLoader instance"""
         self.data_loader = data_loader
         self.combined_data = {}
         
         self.combine_by_folder()
-        self.save_combined_data()
+        # Use DataSaver instead of built-in save method
+        data_saver = DataSaver(self.data_loader, self.combined_data)
+        data_saver.save_all_data()
     
             
     def combine_by_folder(self):
@@ -271,20 +274,38 @@ class DataCombiner:
             
             # Store combined data for this folder
             self.combined_data[str(folder)] = combined_folder_data
+
+class DataSaver:
+    
+    def __init__(self, data_loader: DataLoader, combined_data: dict):
+        """Initialize with DataLoader and combined_data instances"""
+        self.data_loader = data_loader
+        self.combined_data = combined_data
+        
+    def save_all_data(self):
+        """Save both combined and original data"""
+        self.save_combined_data()
+        self.save_original_data()
         
     def save_combined_data(self):
-        """Save the combined data to the original folders where the files were located"""
+        """Save the combined data to proc/combined subdirectory"""
         import json
         import numpy as np
         import os
         
+        # Check if combined_data is a dictionary
+        if not isinstance(self.combined_data, dict):
+            print(f"Warning: combined_data is not a dictionary. Type: {type(self.combined_data)}")
+            return
+            
+        # Iterate through the combined data dictionary
         for folder_name, folder_data in self.combined_data.items():
             # Use the original folder path
             folder_output = Path(folder_name)
             
             # Create a subdirectory for the combined results
-            combined_dir = folder_output / "combined_data"
-            combined_dir.mkdir(exist_ok=True)
+            combined_dir = folder_output / "proc" / "combined"
+            combined_dir.mkdir(parents=True, exist_ok=True)
             
             # Save metadata as JSON
             metadata = {}
@@ -297,27 +318,31 @@ class DataCombiner:
                 file_metadata = []
                 for file_path in combined_item['files']:
                     # Find the index in the original files DataFrame
-                    file_idx = self.data_loader.files[self.data_loader.files['file_path'].astype(str) == file_path].index[0]
-                    handler = self.data_loader.data[file_idx]
-                    header = handler.get_header()
-                    
-                    # Get stream to extract sampling rate, samples, and channels info
-                    stream = handler.get_stream()
-                    
-                    # Extract calibration coefficient from header (single value for the entire stream)
-                    calib_coeff = None
-                    if 'calib_coeff' in header:
-                        calib_coeff = header['calib_coeff']
-                    
-                    file_metadata.append({
-                        'path': file_path,
-                        'start_datetime': str(header['start_datetime']),
-                        'end_datetime': str(header['end_datetime']),
-                        'sampling_rate': float(stream[0].stats.sampling_rate),
-                        'n_samples': int(stream[0].stats.npts),
-                        'n_channels': len(stream),
-                        'calibration_coefficient': calib_coeff
-                    })
+                    try:
+                        file_idx = self.data_loader.files[self.data_loader.files['file_path'].astype(str) == file_path].index[0]
+                        handler = self.data_loader.data[file_idx]
+                        header = handler.get_header()
+                        
+                        # Get stream to extract sampling rate, samples, and channels info
+                        stream = handler.get_stream()
+                        
+                        # Extract calibration coefficient from header (single value for the entire stream)
+                        calib_coeff = None
+                        if 'calib_coeff' in header:
+                            calib_coeff = header['calib_coeff']
+                        
+                        file_metadata.append({
+                            'path': file_path,
+                            'start_datetime': str(header['start_datetime']),
+                            'end_datetime': str(header['end_datetime']),
+                            'sampling_rate': float(stream[0].stats.sampling_rate),
+                            'n_samples': int(stream[0].stats.npts),
+                            'n_channels': len(stream),
+                            'calibration_coefficient': calib_coeff
+                        })
+                    except (IndexError, KeyError) as e:
+                        print(f"Error processing file {file_path}: {e}")
+                        continue
                 
                 # Get combined stream info
                 combined_stream = combined_item['stream']
@@ -334,8 +359,8 @@ class DataCombiner:
                 metadata[combined_id] = {
                     'files': file_metadata,
                     'combined_index': str(combined_item['combined_index']),
-                    'start_datetime': str(file_metadata[0]['start_datetime']),  # Use first file's start time
-                    'end_datetime': str(file_metadata[-1]['end_datetime']),     # Use last file's end time
+                    'start_datetime': str(file_metadata[0]['start_datetime']) if file_metadata else "",  # Use first file's start time
+                    'end_datetime': str(file_metadata[-1]['end_datetime']) if file_metadata else "",     # Use last file's end time
                     'sampling_rate': str(combined_stream[0].stats.sampling_rate),
                     'n_channels': str(n_channels),
                     'total_samples': str(sum(tr.stats.npts for tr in combined_stream)),
@@ -370,25 +395,30 @@ class DataCombiner:
                 start_datetime_str = metadata[combined_id]['start_datetime']
                 
                 # Handle different datetime formats
-                try:
-                    # Try ISO format first
-                    if 'Z' in start_datetime_str:
-                        start_datetime = datetime.fromisoformat(start_datetime_str.replace('Z', '+00:00'))
-                    else:
-                        start_datetime = datetime.fromisoformat(start_datetime_str)
-                except ValueError:
-                    # Try other common formats
-                    for fmt in ['%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S.%f', '%Y/%m/%d %H:%M:%S']:
-                        try:
-                            start_datetime = datetime.strptime(start_datetime_str, fmt)
-                            break
-                        except ValueError:
-                            continue
-                    else:
-                        # If all formats fail, use a default value and warn
-                        print(f"Warning: Could not parse start datetime: {start_datetime_str}")
-                        # Use Unix epoch start as fallback
-                        start_datetime = datetime(1970, 1, 1)
+                if start_datetime_str:
+                    try:
+                        # Try ISO format first
+                        if 'Z' in start_datetime_str:
+                            start_datetime = datetime.fromisoformat(start_datetime_str.replace('Z', '+00:00'))
+                        else:
+                            start_datetime = datetime.fromisoformat(start_datetime_str)
+                    except ValueError:
+                        # Try other common formats
+                        for fmt in ['%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M:%S.%f', '%Y/%m/%d %H:%M:%S']:
+                            try:
+                                start_datetime = datetime.strptime(start_datetime_str, fmt)
+                                break
+                            except ValueError:
+                                continue
+                        else:
+                            # If all formats fail, use a default value and warn
+                            print(f"Warning: Could not parse start datetime: {start_datetime_str}")
+                            # Use Unix epoch start as fallback
+                            start_datetime = datetime(1970, 1, 1)
+                else:
+                    # No start datetime available
+                    print("Warning: No start datetime available. Using Unix epoch start.")
+                    start_datetime = datetime(1970, 1, 1)
                 
                 # Convert to epoch seconds (timestamp)
                 start_epoch = start_datetime.timestamp()
@@ -400,28 +430,170 @@ class DataCombiner:
                 # reorder columns (time, N, E, Z) or (time, 0, 1, 2)
                 # otherwise, time should be moved to the first column
                 if 'N' in stream_data:
-                    stream_data = {k: stream_data[k] for k in ['time_s', 'N', 'E', 'Z']}
+                    stream_data = {k: stream_data[k] for k in ['time_s', 'N', 'E', 'Z'] if k in stream_data}
                 elif '0' in stream_data:
-                    stream_data = {k: stream_data[k] for k in ['time_s', '0', '1', '2']}
+                    stream_data = {k: stream_data[k] for k in ['time_s', '0', '1', '2'] if k in stream_data}
                 else:
                     key_list = list(stream_data.keys())
-                    key_list.remove('time_s')
+                    if 'time_s' in key_list:
+                        key_list.remove('time_s')
                     key_list.insert(0, 'time_s')
                     stream_data = {k: stream_data[k] for k in key_list}
                 
                 pd.DataFrame(stream_data).to_csv(csv_file, index=False)
-                print(f"Saved stream data to {csv_file}")
+                print(f"Saved combined stream data to {csv_file}")
             
             # Save metadata - ensure proper encoding for Japanese characters
-            json_file = combined_dir / "metadata.json"
-            with open(json_file, 'w', encoding='utf-8') as f:
-                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            if metadata:  # Only save if there's any metadata
+                json_file = combined_dir / "combined_metadata.json"
+                with open(json_file, 'w', encoding='utf-8') as f:
+                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+                
+                print(f"Saved combined metadata to {json_file}")
+            else:
+                print(f"No metadata to save for {folder_name}")
+    
+    def save_original_data(self):
+        """Save the original data to proc/original subdirectory"""
+        import json
+        import numpy as np
+        import os
+        
+        # Group files by folder (parent directory)
+        if 'folder' not in self.data_loader.files.columns:
+            self.data_loader.files['folder'] = self.data_loader.files['file_path'].apply(lambda x: x.parent)
+        
+        folder_groups = self.data_loader.files.groupby('folder')
+        
+        for folder, group_df in folder_groups:
+            folder_name = folder.name
+            print(f"Saving original files from folder: {folder_name}")
             
-            print(f"Saved metadata to {json_file}")
-
+            # Create directory for original data
+            original_dir = Path(folder) / "proc" / "original"
+            original_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Get indices of files in this folder
+            file_indices = group_df.index.tolist()
+            
+            # Process each handler in the folder
+            for i, idx in enumerate(file_indices):
+                try:
+                    handler = self.data_loader.data[idx]
+                    file_path = self.data_loader.files.loc[idx, 'file_path']
+                    file_name = file_path.name.replace('.', '')
+                    
+                    # Create unique ID for this file
+                    file_id = f"original_{os.path.basename(folder)}_{file_name}"
+                    
+                    # Get header information
+                    header = handler.get_header()
+                    stream = handler.get_stream()
+                    
+                    # Extract calibration coefficient
+                    calib_coeff = None
+                    if 'calib_coeff' in header:
+                        calib_coeff = header['calib_coeff']
+                    
+                    # Convert stream to DataFrame with epoch time
+                    stream_data = {}
+                    
+                    # Add trace data
+                    for trace in stream:
+                        stream_data[trace.stats.channel] = trace.data
+                    
+                    # Skip if no data available
+                    if not stream_data:
+                        print(f"\rSkipping file {file_path} - no stream data", end="")
+                        continue
+                    
+                    # Find the maximum length of all data arrays
+                    max_length = max(len(data) for data in stream_data.values())
+                    
+                    # Pad shorter arrays with NaN values if needed
+                    for channel, data in stream_data.items():
+                        if len(data) < max_length:
+                            print(f"Padding channel {channel} data from {len(data)} to {max_length} samples")
+                            padding = [np.nan] * (max_length - len(data))
+                            stream_data[channel] = np.append(data, padding)
+                    
+                    # Create epoch time array
+                    sampling_rate = stream[0].stats.sampling_rate
+                    
+                    # Convert start datetime to epoch seconds
+                    start_datetime = header['start_datetime']
+                    if isinstance(start_datetime, str):
+                        try:
+                            if 'Z' in start_datetime:
+                                start_datetime = datetime.fromisoformat(start_datetime.replace('Z', '+00:00'))
+                            else:
+                                start_datetime = datetime.fromisoformat(start_datetime)
+                        except ValueError:
+                            for fmt in ['%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', 
+                                       '%Y/%m/%d %H:%M:%S.%f', '%Y/%m/%d %H:%M:%S']:
+                                try:
+                                    start_datetime = datetime.strptime(start_datetime, fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                            else:
+                                print(f"Warning: Could not parse start datetime: {start_datetime}")
+                                start_datetime = datetime(1970, 1, 1)
+                    
+                    # Convert to epoch seconds
+                    try:
+                        start_epoch = start_datetime.timestamp()
+                    except (AttributeError, TypeError) as e:
+                        print(f"Error converting to timestamp: {e}")
+                        print(f"Using Unix epoch start as fallback")
+                        start_epoch = 0
+                    
+                    # Add time column to data
+                    time_array = start_epoch + np.arange(0, max_length) / sampling_rate
+                    stream_data['time_s'] = time_array
+                    
+                    # Reorder columns to put time first
+                    if 'N' in stream_data:
+                        stream_data = {k: stream_data[k] for k in ['time_s', 'N', 'E', 'Z'] if k in stream_data}
+                    elif '0' in stream_data:
+                        stream_data = {k: stream_data[k] for k in ['time_s', '0', '1', '2'] if k in stream_data}
+                    else:
+                        key_list = list(stream_data.keys())
+                        if 'time_s' in key_list:
+                            key_list.remove('time_s')
+                        key_list.insert(0, 'time_s')
+                        stream_data = {k: stream_data[k] for k in key_list}
+                    
+                    # Save data to CSV
+                    csv_file = original_dir / f"{file_id}.csv"
+                    pd.DataFrame(stream_data).to_csv(csv_file, index=False)
+                    
+                    # Create metadata for this specific file
+                    metadata = {
+                        'path': str(file_path),
+                        'start_datetime': str(header['start_datetime']),
+                        'end_datetime': str(header['end_datetime']),
+                        'sampling_rate': str(stream[0].stats.sampling_rate),
+                        'n_channels': str(len(stream)),
+                        'n_samples': str(stream[0].stats.npts),
+                        'calibration_coefficient': calib_coeff
+                    }
+                    
+                    # Save metadata for this specific file
+                    json_file = original_dir / f"{file_id}_metadata.json"
+                    with open(json_file, 'w', encoding='utf-8') as f:
+                        json.dump(metadata, f, indent=2, ensure_ascii=False)
+                    
+                    print(f"\rProcessing file {i+1}/{len(file_indices)}: {file_id} saved", end="")
+                    
+                except Exception as e:
+                    print(f"\nError processing file at index {idx}: {e}")
+                    continue
+            
+            print(f"\nCompleted processing {len(file_indices)} files from folder {folder_name}")
 class GraphExporter():
     
-    def __init__(self, data_dir):
+    def __init__(self, data_dir: Union[str, Path]):
         self.data_dir = Path(data_dir)
         
         self._make_file_list()
@@ -481,4 +653,4 @@ class GraphExporter():
             data.to_csv(updated_file_path, index=False)
             
         print("\nCSV updated.")
-    
+
