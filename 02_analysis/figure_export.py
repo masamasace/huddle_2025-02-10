@@ -6,6 +6,7 @@ import numpy as np
 import glob
 from scipy.signal.windows import parzen, hann
 from scipy.signal import convolve, detrend
+from main import get_config, get_file_list
 
 class SeismicDataProcessor:
     def __init__(self, drop_cols=None):
@@ -281,7 +282,7 @@ class SeismicPlotter:
                     
                 current_plot += 1
         
-        output_path = output_dir / 'time_series_plot.svg'
+        output_path = output_dir / 'time_series.svg'
         fig.savefig(output_path, format='svg', bbox_inches='tight')
         print(f"Plot saved to {output_path}")
     def apply_parzen_window(self, spectrum, freqs, width=0.2):
@@ -457,7 +458,7 @@ class SeismicPlotter:
         fig.tight_layout()
         
         # Save the combined figure
-        output_path = output_dir / 'power_spectra.svg'
+        output_path = output_dir / 'psd.svg'
         fig.savefig(output_path, format='svg', bbox_inches='tight')
         plt.close(fig)
         print(f"Power spectra plot saved to {output_path}")
@@ -466,38 +467,15 @@ if __name__ == "__main__":
     # Create processor instance
     processor = SeismicDataProcessor()
     
-    # Example usage with directory path and optional axis limits
-    dir_path = Path(r'01_data\01_群馬高専')
+    # Get the file list from the main.py configuration
+    file_list = get_file_list()
     
-    # Example 1: Default limits (auto-calculated)
-    # processor.process_records(dir_path)
+    # Get time limits from configuration
+    time_limits = get_config('time_limits')
+    x_min = time_limits.get('x_min')
+    x_max = time_limits.get('x_max')
+    y_min = time_limits.get('y_min')
+    y_max = time_limits.get('y_max')
     
-    # Example 2: Custom y-axis limits, automatic x-axis limits
-    # processor.process_records(dir_path, y_min=-0.5, y_max=0.5)
-    
-    # Example 3: Custom x-axis limits, automatic y-axis limits
-    # processor.process_records(dir_path, x_min=0, x_max=10)
-    
-    # Example 4: All custom limits
-    # processor.process_records(dir_path, y_min=-0.5, y_max=0.5, x_min=0, x_max=10)
-    
-    # Example 5: Process a single file
-    # single_file = Path(r'01_data\01_群馬高専\combined_example.csv')
-    # processor.process_records(single_file, y_min=-5, y_max=5)
-    
-    # Example 6: Process a list of files
-    # file_list = [
-    #     Path(r'01_data\01_群馬高専\combined_example1.csv'),
-    #     Path(r'01_data\01_群馬高専\combined_example2.csv')
-    # ]
-    # processor.process_records(file_list, y_min=-5, y_max=5)
-    
-    # Currently using directory with custom y limits
-    file_list = [
-        r'01_data\01_群馬高専\Trillium\proc\combined\combined_Trillium_0.csv',
-        r'01_data\01_群馬高専\D013\proc\combined\combined_D013_1.csv',
-        r'01_data\01_群馬高専\D014\proc\combined\combined_D014_1.csv',
-        r'01_data\01_群馬高専\CV374-1\proc\combined\combined_CV374-1_0.csv',
-        r'01_data\01_群馬高専\CV374-2\proc\combined\combined_CV374-2_0.csv',
-    ]
-    processor.process_records(file_list, x_min=1739155400, x_max=1739156700, y_min=-0.5, y_max=0.5)
+    # Process files with configuration from main.py
+    processor.process_records(file_list, x_min=x_min, x_max=x_max, y_min=y_min, y_max=y_max)

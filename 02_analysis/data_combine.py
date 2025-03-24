@@ -1,7 +1,8 @@
 from cv374 import DataLoader, DataCombiner
+from main import get_config
 
-data_dir = r"01_data"
-# data_dir = r'01_data\01_群馬高専\D013'
+# Get data directory from configuration
+data_dir = get_config('paths', 'data_dir')
 data = DataLoader(data_dir)
 combined_data = DataCombiner(data)
 
