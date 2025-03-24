@@ -3,4 +3,5 @@
 *.code-workspace
 .DS_Store
 *.pyc
-02_analysis/main.py
+/02_analysis/main.py
+__pycache__/
