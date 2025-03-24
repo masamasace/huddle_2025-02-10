@@ -4,7 +4,8 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import glob
-from scipy import signal
+from scipy.signal.windows import parzen, hann
+from scipy.signal import convolve, detrend
 
 class SeismicDataProcessor:
     def __init__(self, drop_cols=None):
@@ -193,7 +194,7 @@ class SeismicDataProcessor:
         
         # Plot power spectrum
         plotter.plot_power_spectrum(all_data, output_dir, use_parzen=True, parzen_width=0.2, 
-                                  f_min=0.1, f_max=20, amp_min=None, amp_max=None)
+                                  f_min=0.01, f_max=50, amp_min=10 ** -19, amp_max=10 ** -8)
         
         return all_data
 
@@ -257,16 +258,24 @@ class SeismicPlotter:
                 ax.plot(data['time_s'], data[col], color=color_dict[col], linewidth=0.25)
                 ax.set_ylim(y_min, y_max)
                 ax.set_xlim(x_min, x_max)
-                ax.set_ylabel(f"{machine_name}\n{col}", fontsize=6)
+                ax.set_ylabel(f"{machine_name}\n{col}", fontsize=8)
                 
                 # Add unit annotation
-                ax.annotate(f"Unit: {unit}", xy=(0.02, 0.90), xycoords='axes fraction', fontsize=6, ha='left', va='top')
-                ax.annotate(f"Offset: {data_dict['baseline_offset'][col]:.4e}", xy=(0.12, 0.90), xycoords='axes fraction', fontsize=6, ha='left', va='top')
-                ax.annotate(f"Std: {data_dict['std'][col]:.4e}", xy=(0.22, 0.90), xycoords='axes fraction', fontsize=6, ha='left', va='top')
+                ax.annotate(f"Unit: {unit}", xy=(0.02, 0.90), xycoords='axes fraction', fontsize=8, ha='left', va='top')
+                ax.annotate(f"Offset: {data_dict['baseline_offset'][col]:.4e}", xy=(0.1, 0.90), xycoords='axes fraction', fontsize=8, ha='left', va='top')
+                ax.annotate(f"Std: {data_dict['std'][col]:.4e}", xy=(0.25, 0.90), xycoords='axes fraction', fontsize=8, ha='left', va='top')
                 
+                # remove bounding lines of ax
+                ax.spines['right'].set_visible(False)
+                ax.spines['top'].set_visible(False)
+                
+                # keep yaxis label only for first subplot
+                if current_plot != 0:
+                    ax.set_yticklabels([])
                 # Only show x-axis label on bottom subplot
                 if current_plot < total_channels - 1:
                     ax.set_xticklabels([])
+                    ax.spines['bottom'].set_visible(False)
                 else:
                     ax.set_xlabel('Time')
                     
@@ -294,13 +303,13 @@ class SeismicPlotter:
         window_size = 2 * n_width + 1
         
         # Create Parzen window using scipy
-        window = signal.parzen(window_size)
+        window = parzen(window_size)
         
         # Normalize window
         window = window / np.sum(window)
         
         # Apply convolution for smoothing
-        smoothed = signal.convolve(spectrum, window, mode='same')
+        smoothed = convolve(spectrum, window, mode='same')
         
         return smoothed
     
@@ -317,10 +326,10 @@ class SeismicPlotter:
             psd: Power Spectral Density array
         """
         # Detrend data
-        detrended = signal.detrend(time_series)
+        detrended = detrend(time_series)
         
         # Apply Hann window to reduce spectral leakage
-        windowed = detrended * signal.windows.hann(len(detrended))
+        windowed = detrended * hann(len(detrended))
         
         # Calculate FFT
         n = len(windowed)
@@ -348,30 +357,22 @@ class SeismicPlotter:
             f_min, f_max: Frequency axis limits
             amp_min, amp_max: Amplitude axis limits
         """
-        # Get all unique components across all data files
-        all_components = set()
-        for data_dict in all_data:
-            all_components.update([col for col in data_dict['data'].columns if col != 'time_s'])
+        # Get all unique machine names
+        all_machines = [data_dict['machine_name'] for data_dict in all_data]
         
-        # Sort components to ensure consistent order (typically NS, EW, UD)
-        all_components = sorted(list(all_components))
-        
-        if not all_components:
+        if not all_machines:
             print("No time series data found to plot")
             return
         
-        # Create a single figure with subplots for each component
-        fig, axes = plt.subplots(len(all_components), 1, figsize=(10, 3*len(all_components)), sharex=True)
+        # Create a single figure with subplots for each machine
+        fig, axes = plt.subplots(len(all_machines), 1, figsize=(5, 3*len(all_machines)), sharex=True)
         
         # Ensure axes is always a list, even with a single subplot
-        if len(all_components) == 1:
+        if len(all_machines) == 1:
             axes = [axes]
         
-        # Create a dictionary to map components to their respective subplot
-        component_to_axis = {comp: ax for comp, ax in zip(all_components, axes)}
-        
-        # Track legend entries for each component
-        legend_entries = {comp: [] for comp in all_components}
+        # Create a dictionary to map machines to their respective subplot
+        machine_to_axis = {machine: ax for machine, ax in zip(all_machines, axes)}
         
         # Process each data file
         for data_dict in all_data:
@@ -380,14 +381,14 @@ class SeismicPlotter:
             dt = data['time_s'].diff().mean()
             unit = data_dict['unit']
             
+            # Get the appropriate axis for this machine
+            ax = machine_to_axis[machine_name]
+            
             # Process each channel
             for col in data.columns:
                 if col == 'time_s':
                     continue
                     
-                # Get the appropriate axis for this component
-                ax = component_to_axis[col]
-                
                 # Calculate PSD
                 freqs, psd = self.calculate_psd(data[col].values, dt)
                 
@@ -395,34 +396,39 @@ class SeismicPlotter:
                 if use_parzen:
                     psd = self.apply_parzen_window(psd, freqs, parzen_width)
                 
-                # Plot with appropriate color and use machine name to differentiate
+                # Plot with appropriate color for each component
                 color = self.color_dict.get(col, 'black')
-                line, = ax.loglog(freqs, psd, linewidth=1, label=f"{machine_name}", color=color, alpha=0.7)
-                
-                # Add to legend entries
-                legend_entries[col].append((line, f"{machine_name}"))
+                ax.loglog(freqs, psd, linewidth=1, label=col, color=color, alpha=0.7)
         
         # Configure each subplot
-        for i, (comp, ax) in enumerate(component_to_axis.items()):
+        for i, (machine, ax) in enumerate(machine_to_axis.items()):
+            # Find the unit from the data_dict with this machine name
+            unit = "unknown"
+            for data_dict in all_data:
+                if data_dict['machine_name'] == machine:
+                    unit = data_dict['unit']
+                    break
+                    
             # Add unit information to labels
-            unit_label = f" [{unit}²/Hz]" if 'unit' in locals() and unit != "unknown" else ""
+            unit_label = f" [{unit}²/Hz]" if unit != "unknown" else ""
             
             # Set title and labels
-            ax.set_title(f'{comp} Component')
+            ax.set_title(f'{machine}')
             ax.set_ylabel(f'PSD{unit_label}')
             
             # Only show x-label on bottom subplot
-            if i == len(component_to_axis) - 1:
+            if i == len(machine_to_axis) - 1:
                 ax.set_xlabel('Frequency [Hz]')
             
             # Add grid
-            ax.grid(True, which="both", ls="-", alpha=0.2)
+            ax.grid(True, which="both", ls="-", alpha=0.5, linewidth=0.5)
             
-            # Add legend
-            if legend_entries[comp]:
-                ax.legend([entry[0] for entry in legend_entries[comp]], 
-                         [entry[1] for entry in legend_entries[comp]],
-                         loc='upper right')
+            # Add legend for components
+            ax.legend(loc='lower left', fancybox=False, shadow=False, ncol=3, fontsize=6)
+            
+            # remove right and top bounding lines of ax
+            ax.spines['right'].set_visible(False)
+            ax.spines['top'].set_visible(False) 
             
             # Set frequency axis limits if provided
             if f_min is not None or f_max is not None:
@@ -490,6 +496,8 @@ if __name__ == "__main__":
     file_list = [
         r'01_data\01_群馬高専\Trillium\proc\combined\combined_Trillium_0.csv',
         r'01_data\01_群馬高専\D013\proc\combined\combined_D013_1.csv',
-        r'01_data\01_群馬高専\CV374-1\proc\combined\combined_CV374-1_0.csv'
+        r'01_data\01_群馬高専\D014\proc\combined\combined_D014_1.csv',
+        r'01_data\01_群馬高専\CV374-1\proc\combined\combined_CV374-1_0.csv',
+        r'01_data\01_群馬高専\CV374-2\proc\combined\combined_CV374-2_0.csv',
     ]
     processor.process_records(file_list, x_min=1739155400, x_max=1739156700, y_min=-0.5, y_max=0.5)
