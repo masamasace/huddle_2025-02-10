@@ -24,19 +24,18 @@ def load_csv_with_metadata(file_path):
     
     return data, metadata
 
-def apply_calibration(data, metadata):
-    if metadata and 'calibration_coefficient' in metadata:
-        calibration = metadata['calibration_coefficient']
+def apply_calibration(data, metadata, file_stem):
+    
+    if metadata and file_stem in metadata:
+        calib_coeff = metadata[file_stem]['calibration_coefficient']
         
         # Apply calibration to each channel (excluding time_s column)
         for col in data.columns:
             if col == 'time_s':
                 continue
-            if col in calibration:
-                data[col] = data[col] * calibration[col]
             else:
-                print(f"Warning: No calibration coefficient for channel {col}")
-    
+                data[col] = data[col] * calib_coeff
+          
     return data
 
 def process_directory(dir_path):
@@ -58,13 +57,18 @@ def process_directory(dir_path):
     
     # Process each file
     for file_path in combined_files:
-        print(f"Processing {file_path}")
+        
+        # make file name
+        file_name = file_path.name
+        file_stem = file_path.stem
+        
+        print(f"Processing {file_name}")
         data, metadata = load_csv_with_metadata(file_path)
         
         # Apply calibration
         if metadata:
             
-            data = apply_calibration(data, metadata)
+            data = apply_calibration(data, metadata, file_stem)
         
         # Find max absolute value (excluding time_s column)
         value_columns = [col for col in data.columns if col != 'time_s']
@@ -73,7 +77,7 @@ def process_directory(dir_path):
         
         # Store data with file info
         all_data.append({
-            'file': file_path.name,
+            'file': file_name,
             'machine_name': file_path.parents[2].name,
             'data': data
         })
@@ -118,7 +122,7 @@ def plot_all_channels(all_data, max_value, output_dir):
             current_plot += 1
     
     output_path = output_dir / 'combined_channels_plot.svg'
-    fig.savefig(output_path, format='svg')
+    fig.savefig(output_path, format='svg', bbox_inches='tight')
     print(f"Plot saved to {output_path}")
 
 if __name__ == "__main__":
